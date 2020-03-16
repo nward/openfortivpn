@@ -42,7 +42,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          sudo apt-get install -y pkg-config
+          sudo apt-get install -y pkg-config -y autoconf-archive
           ./tests/ci/install_openssl.sh $HOME/.openfortivpn-deps
 
       - name: Build
