@@ -21,7 +21,9 @@
 #include "ipv4.h"
 #include "userinput.h"
 #include "log.h"
+#include "picohttpparser.h"
 
+#include <assert.h>
 #include <ctype.h>
 #include <string.h>
 #include <stdarg.h>
@@ -72,6 +74,8 @@ int http_send(struct tunnel *tunnel, const char *request, ...)
 	char logbuffer[BUFSZ];
 	int length;
 	int n = 0;
+
+	log_error("----> %s\n", __func__);
 
 	va_start(args, request);
 	length = vsnprintf(buffer, BUFSZ, request, args);
@@ -135,6 +139,50 @@ static const char *find_header(
 	return NULL;
 }
 
+
+static int http_parse_response_headers(
+		const struct phr_header *headers, int num_headers,
+		ssize_t *content_length, int *chunked)
+{
+	assert(content_length != NULL);
+	assert(chunked != NULL);
+
+	for (int i = 0; i != num_headers; ++i) {
+		if (strncmp("Content-Length", headers[i].name, headers[i].name_len)) {
+			ssize_t value = 0;
+
+			/*********** REMOVE **********/
+			char gnagna[1000];
+			snprintf(gnagna, headers[i].name_len, "%s", headers[i].name);
+			log_error("%s: Content-Length: %s\n", __func__, gnagna);
+			/*********** REMOVE **********/
+			for (int j = 0; j < headers[i].value_len; ++j)
+				if (isspace(headers[i].value[j])) {
+					if (value)
+						return -1;
+				} else if (isdigit(headers[i].value[j])) {
+					value *= 10;
+					value += headers[i].value[j] - '0';
+				}
+			*content_length = value;
+			/*********** REMOVE **********/
+			log_error("%s: Content-Length: %d\n", __func__, value);
+			/*********** REMOVE **********/
+		} else if (strncmp("Transfer-Encoding", headers[i].name, headers[i].name_len)) {
+			/*********** REMOVE **********/
+			char gnagna[1000];
+			snprintf(gnagna, headers[i].name_len, "%s", headers[i].name);
+			log_error("%s: TTransfer-Encoding: %s\n", __func__, gnagna);
+			/*********** REMOVE **********/
+			if (strncmp("chunked", headers[i].value, headers[i].value_len))
+				*chunked = 1;
+		}
+	}
+
+	return 1;
+}
+
+
 /*
  * Receives data from the HTTP server.
  *
@@ -150,102 +198,154 @@ int http_receive(
         uint32_t *response_size
 )
 {
-	uint32_t res_size = BUFSZ;
-	char *buffer, *res;
-	int n = 0;
-	int bytes_read = 0;
-	int header_size = 0;
-	int content_size = 0;
+	char *buffer;
+	int ssl_ret = ERR_SSL_AGAIN; // start the reading loop
+	int header_size;
+	size_t bytes_read = 0, last_bytes_read = 0;
+	ssize_t content_size =  -1;
+	struct phr_chunked_decoder decoder = {0};
 	int chunked = 0;
+	int http_errno = 1; // success
 
-	buffer = malloc(res_size);
-	if (buffer == NULL)
-		return ERR_HTTP_NO_MEM;
+	assert(response != NULL);
 
-	do {
-		n = safe_ssl_read(tunnel->ssl_handle,
-		                  (uint8_t *) buffer + bytes_read,
-		                  BUFSZ - 1 - bytes_read);
-		if (n > 0) {
-			log_debug_details("%s:\n%s\n", __func__, buffer);
-			const char *eoh;
+	buffer = malloc(8192); // FIXME: ought to be enough for everyone...
+	if (buffer == NULL) {
+		http_errno = ERR_HTTP_NO_MEM;
+		goto end;
+	}
 
-			bytes_read += n;
+	while (ssl_ret > 0 || ssl_ret == ERR_SSL_AGAIN) {
+		log_error("--------------------\n", __func__, __LINE__, bytes_read);
+		log_error("----> %s:%d: BEGIN LOOP\n", __func__, __LINE__);
+		log_error("----> %s:%d: content_size: %d\n", __func__, __LINE__, content_size);
+		/* read the response */
+		ssl_ret = safe_ssl_read(tunnel->ssl_handle,
+		                    (uint8_t *)buffer + bytes_read,
+		                    sizeof(buffer) - bytes_read);
+		log_error("----> %s:%d: AFTER BEGIN LOOP\n", __func__, __LINE__);
+		log_error("----> %s:%d: ssl_ret: %d\n", __func__, __LINE__, ssl_ret);
+		if (ssl_ret < 0) {
+			http_errno = ERR_HTTP_SSL;
+			goto cleanup;
+		}
+		last_bytes_read = last_bytes_read;
 
-			if (!header_size) {
-				/* Did we see the header end? Then get the body size. */
-				eoh = memmem(buffer, bytes_read, "\r\n\r\n", 4);
-				if (eoh) {
-					const char *header;
+		/* parse the response header */
+		if (content_size <= 0) {
+			int minor_version, status;
+			const char *msg;
+			size_t msg_len;
+			struct phr_header headers[100]; // FIXME: ought to be enough for everyone...
+			size_t num_headers;
 
-					header = find_header(
-					                 buffer,
-					                 "Content-Length: ", BUFSZ);
-					header_size = eoh - buffer + 4;
-					if (header)
-						content_size = atoi(header);
-
-					if (find_header(buffer,
-					                "Transfer-Encoding: chunked",
-					                BUFSZ))
-						chunked = 1;
+			bytes_read += ssl_ret;
+			log_error("----> %s:%d: last_bytes_read: %d\n", __func__, __LINE__, last_bytes_read);
+			log_error("----> %s:%d: bytes_read:      %d\n", __func__, __LINE__, bytes_read);
+			/* the response header has not been entirely read yet */
+			num_headers = ARRAY_SIZE(headers);
+			header_size = phr_parse_response(buffer, bytes_read,
+					&minor_version, &status,
+					&msg, &msg_len,
+					headers, &num_headers,
+					last_bytes_read);
+			log_error("----> %s:%d: header_size: %d\n", __func__, __LINE__, header_size);
+			if (header_size > 0) {
+				/* successfully parsed the response header */
+				if (http_parse_response_headers(headers, num_headers,
+						&content_size, &chunked) < 0) {
+					http_errno = ERR_HTTP_INVALID;
+					goto cleanup;
 				}
-			}
-
-			if (header_size) {
-				/* We saw the whole header, is the body done as well? */
-				if (chunked) {
-					/* Last chunk terminator. Done naively. */
-					if (bytes_read >= 7 &&
-					    !memcmp(&buffer[bytes_read - 7],
-					            "\r\n0\r\n\r\n", 7))
-						break;
-				} else {
-					if (bytes_read >= header_size + content_size)
-						break;
-				}
-			}
-
-			if (bytes_read == BUFSZ - 1) {
-				log_warn("Response too big\n");
-				free(buffer);
-				return ERR_HTTP_SSL;
+				/* prepare to parse the the response body */
+				ssl_ret = bytes_read - header_size;
+				bytes_read = header_size;
+			} else if (header_size == -2) {
+				/* response header is partial, continue the loop */
+				log_error("----> %s:%d: CONTINUE LOOP\n", __func__, __LINE__);
+			} else {
+				/* failed to parse the response header */
+				assert(header_size == -1);
+				http_errno = ERR_HTTP_INVALID;
+				goto cleanup;
 			}
 		}
-	} while (n >= 0);
 
-	if (!header_size) {
-		log_debug("Error reading from SSL connection (%s).\n",
-		          err_ssl_str(n));
-		free(buffer);
-		return ERR_HTTP_SSL;
+		log_error("----> %s:%d: content_size: %d\n", __func__, __LINE__, content_size);
+		char xxx[1000];
+		snprintf(xxx, bytes_read, "%s", buffer);
+		log_error("----> %s:%d: header:\n%s\n", __func__, __LINE__, xxx);
+
+		/* read the rest of the response body */
+		if (content_size > 0) {
+			if (chunked) {
+				size_t bufsz = ssl_ret;
+				ssize_t chunk_size = phr_decode_chunked(&decoder,
+						buffer + bytes_read, &bufsz);
+
+				ssl_ret = bufsz;
+				if (chunk_size > 0) {
+					/* end of chunked-encoded data */
+					break;
+				} else if (chunk_size == -2) {
+					/* still reading chunks, continue the loop */
+				} else if (chunk_size == -1) {
+					/* failed to parse chunks */
+					assert(chunk_size == -1);
+					http_errno = ERR_HTTP_INVALID;
+					goto cleanup;
+				}
+			}
+			bytes_read += ssl_ret;
+			log_error("----> %s:%d: bytes_read: %d\n", __func__, __LINE__, bytes_read);
+			if (!chunked) {
+				if (bytes_read >= header_size + content_size)
+					/* end of data */
+					break;
+			}
+		}
+
+		log_error("----> %s:%d: NEAR END OF LOOP\n", __func__, __LINE__);
+		if (bytes_read >= 8192) {
+			http_errno = ERR_HTTP_TOO_LONG;
+			goto cleanup;
+		}
+		log_error("----> %s:%d: END OF LOOP\n", __func__, __LINE__);
+		log_error("--------------------\n", __func__, __LINE__, bytes_read);
 	}
 
-	if (memmem(&buffer[header_size], bytes_read - header_size,
+	log_error("----> %s:%d: bytes_read: %d\n", __func__, __LINE__, bytes_read);
+
+	if (memmem(buffer + header_size, bytes_read - header_size,
 	           "<!--sslvpnerrmsgkey=sslvpn_login_permission_denied-->", 53) ||
-	    memmem(buffer, header_size, "permission_denied denied", 24) ||
-	    memmem(buffer, header_size, "Permission denied", 17)) {
-		free(buffer);
-		return ERR_HTTP_PERMISSION;
+			memmem(buffer, header_size, "permission_denied denied", 24) ||
+			memmem(buffer, header_size, "Permission denied", 17)) {
+		http_errno = ERR_HTTP_PERMISSION;
+		goto cleanup;
 	}
 
-	if (response == NULL) {
+	*response = realloc(buffer, bytes_read + 1);
+	if (*response == NULL) {
 		free(buffer);
-		return 1;
+			http_errno = ERR_HTTP_NO_MEM;
+			goto cleanup;
 	}
+	(*response)[bytes_read] = '\0';
 
-	res_size = bytes_read + 1;
-	res = realloc(buffer, res_size);
-	if (res == NULL) {
-		free(buffer);
-		return ERR_HTTP_NO_MEM;
-	}
-	res[bytes_read] = '\0';
-
-	*response = res;
 	if (response_size != NULL)
-		*response_size = res_size;
-	return 1;
+		*response_size = bytes_read + 1;
+
+cleanup:
+	/*********** REMOVE **********/
+	log_error("--------------------\n", __func__, __LINE__, bytes_read);
+	log_error("----> %s:%d: bytes_read: %d\n", __func__, __LINE__, bytes_read);
+	log_error("----> %s:%d: header_size: %d\n", __func__, __LINE__, header_size);
+	log_error("----> %s:%d: content_size: %d\n", __func__, __LINE__, content_size);
+	log_error("--------------------\n", __func__, __LINE__, bytes_read);
+	/*********** REMOVE **********/
+	free(buffer);
+end:
+	return http_errno;
 }
 
 static int do_http_request(struct tunnel *tunnel,
@@ -266,6 +366,8 @@ static int do_http_request(struct tunnel *tunnel,
 	                        "Cookie: %s\r\n"
 	                        "Content-Length: %d\r\n"
 	                        "\r\n%s");
+
+	log_error("----> %s\n", __func__);
 
 	ret = http_send(tunnel, template, method, uri,
 	                tunnel->config->gateway_host,
@@ -292,6 +394,9 @@ static int http_request(struct tunnel *tunnel, const char *method,
                         uint32_t *response_size
                        )
 {
+	
+	log_error("----> %s\n", __func__);
+
 	int ret = do_http_request(tunnel, method, uri, data,
 	                          response, response_size);
 

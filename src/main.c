@@ -594,8 +594,8 @@ int main(int argc, char **argv)
 
 	if (geteuid() != 0) {
 		log_error("This process was not spawned with root privileges, which are required.\n");
-		ret = EXIT_FAILURE;
-		goto exit;
+		//~ ret = EXIT_FAILURE;
+		//~ goto exit;
 	}
 
 	do {
