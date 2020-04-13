@@ -199,7 +199,7 @@ int http_receive(
 )
 {
 	char *buffer;
-	int ssl_ret = ERR_SSL_AGAIN; // start the reading loop
+	int ssl_ret;
 	int header_size;
 	size_t bytes_read = 0, last_bytes_read = 0;
 	ssize_t content_size =  -1;
@@ -209,22 +209,20 @@ int http_receive(
 
 	assert(response != NULL);
 
-	buffer = malloc(8192); // FIXME: ought to be enough for everyone...
+	buffer = malloc(0x10000); // FIXME: ought to be enough for everyone...
 	if (buffer == NULL) {
 		http_errno = ERR_HTTP_NO_MEM;
 		goto end;
 	}
 
-	while (ssl_ret > 0 || ssl_ret == ERR_SSL_AGAIN) {
-		log_error("--------------------\n", __func__, __LINE__, bytes_read);
-		log_error("----> %s:%d: BEGIN LOOP\n", __func__, __LINE__);
+	do {
+		log_error("->>>-------\ns:%d: BEGIN LOOP\n", __func__, __LINE__);
 		log_error("----> %s:%d: content_size: %d\n", __func__, __LINE__, content_size);
 		/* read the response */
 		ssl_ret = safe_ssl_read(tunnel->ssl_handle,
 		                    (uint8_t *)buffer + bytes_read,
 		                    sizeof(buffer) - bytes_read);
-		log_error("----> %s:%d: AFTER BEGIN LOOP\n", __func__, __LINE__);
-		log_error("----> %s:%d: ssl_ret: %d\n", __func__, __LINE__, ssl_ret);
+		log_error("%s:%d: ssl_ret: %d\n", __func__, __LINE__, ssl_ret);
 		if (ssl_ret < 0) {
 			http_errno = ERR_HTTP_SSL;
 			goto cleanup;
@@ -306,13 +304,13 @@ int http_receive(
 		}
 
 		log_error("----> %s:%d: NEAR END OF LOOP\n", __func__, __LINE__);
-		if (bytes_read >= 8192) {
+		if (bytes_read >= 0x10000) {
 			http_errno = ERR_HTTP_TOO_LONG;
 			goto cleanup;
 		}
 		log_error("----> %s:%d: END OF LOOP\n", __func__, __LINE__);
 		log_error("--------------------\n", __func__, __LINE__, bytes_read);
-	}
+	} while (ssl_ret > 0 || ssl_ret == ERR_SSL_AGAIN);
 
 	log_error("----> %s:%d: bytes_read: %d\n", __func__, __LINE__, bytes_read);
 
