@@ -198,16 +198,14 @@ int http_receive(
         uint32_t *response_size
 )
 {
+	uint32_t res_size = BUFSZ;
 	char *buffer;
-	int ssl_ret;
-	int header_size;
+	size_t header_size;
 	size_t bytes_read = 0, last_bytes_read = 0;
-	ssize_t content_size =  -1;
+	ssize_t content_size = 0;
 	struct phr_chunked_decoder decoder = {0};
 	int chunked = 0;
 	int http_errno = 1; // success
-
-	assert(response != NULL);
 
 	buffer = malloc(0x10000); // FIXME: ought to be enough for everyone...
 	if (buffer == NULL) {
@@ -215,102 +213,66 @@ int http_receive(
 		goto end;
 	}
 
-	do {
-		log_error("->>>-------\ns:%d: BEGIN LOOP\n", __func__, __LINE__);
+	while (1) {
+		log_error("-->>> %s:%d: BEGIN LOOP\n", __func__, __LINE__);
 		log_error("----> %s:%d: content_size: %d\n", __func__, __LINE__, content_size);
 		/* read the response */
-		ssl_ret = safe_ssl_read(tunnel->ssl_handle,
-		                    (uint8_t *)buffer + bytes_read,
-		                    sizeof(buffer) - bytes_read);
-		log_error("%s:%d: ssl_ret: %d\n", __func__, __LINE__, ssl_ret);
+		int ssl_ret = safe_ssl_read(tunnel->ssl_handle,
+				(uint8_t *)buffer + bytes_read,
+				sizeof(buffer) - bytes_read);
+
+		log_error("----> %s:%d: ssl_ret: %d\n", __func__, __LINE__, ssl_ret);
 		if (ssl_ret < 0) {
+			log_error("----> %s:%d: ERROR IN LOOP\n", __func__, __LINE__);
 			http_errno = ERR_HTTP_SSL;
 			goto cleanup;
+		} else if (ssl_ret == ERR_SSL_AGAIN) {
+			log_error("----> %s:%d: CONTINUE LOOP\n", __func__, __LINE__);
+			continue;
 		}
-		last_bytes_read = last_bytes_read;
+		last_bytes_read = bytes_read;
+		bytes_read += ssl_ret;
 
-		/* parse the response header */
-		if (content_size <= 0) {
-			int minor_version, status;
-			const char *msg;
-			size_t msg_len;
-			struct phr_header headers[100]; // FIXME: ought to be enough for everyone...
-			size_t num_headers;
+		int minor_version, status;
+		const char *msg;
+		size_t msg_len;
+		struct phr_header headers[100]; // FIXME: ought to be enough for everyone...
+		size_t num_headers = ARRAY_SIZE(headers);
+		int ph_ret = phr_parse_response(buffer, bytes_read,
+				&minor_version, &status,
+				&msg, &msg_len,
+				headers, &num_headers,
+				last_bytes_read);
 
-			bytes_read += ssl_ret;
-			log_error("----> %s:%d: last_bytes_read: %d\n", __func__, __LINE__, last_bytes_read);
-			log_error("----> %s:%d: bytes_read:      %d\n", __func__, __LINE__, bytes_read);
-			/* the response header has not been entirely read yet */
-			num_headers = ARRAY_SIZE(headers);
-			header_size = phr_parse_response(buffer, bytes_read,
-					&minor_version, &status,
-					&msg, &msg_len,
-					headers, &num_headers,
-					last_bytes_read);
+		log_error("----> %s:%d: ph_ret: %d\n", __func__, __LINE__, ph_ret);
+		if (ph_ret > 0) {
+			/* successfully parsed the request */
 			log_error("----> %s:%d: header_size: %d\n", __func__, __LINE__, header_size);
-			if (header_size > 0) {
-				/* successfully parsed the response header */
-				if (http_parse_response_headers(headers, num_headers,
-						&content_size, &chunked) < 0) {
-					http_errno = ERR_HTTP_INVALID;
-					goto cleanup;
-				}
-				/* prepare to parse the the response body */
-				ssl_ret = bytes_read - header_size;
-				bytes_read = header_size;
-			} else if (header_size == -2) {
-				/* response header is partial, continue the loop */
-				log_error("----> %s:%d: CONTINUE LOOP\n", __func__, __LINE__);
-			} else {
-				/* failed to parse the response header */
-				assert(header_size == -1);
+			if (http_parse_response_headers(headers, num_headers,
+					&content_size, &chunked) < 0) {
 				http_errno = ERR_HTTP_INVALID;
 				goto cleanup;
 			}
+			/* prepare to parse the the response body */
+			ssl_ret = bytes_read - header_size;
+			bytes_read = header_size;
+		} else if (ph_ret == -2) {
+			/* response header is partial, continue the loop */
+			log_error("----> %s:%d: CONTINUE LOOP\n", __func__, __LINE__);
+		} else {
+			log_error("----> s:%d: ERROR IN LOOP\n", __func__, __LINE__);
+			/* failed to parse the response header */
+			assert(header_size == -1);
+			http_errno = ERR_HTTP_INVALID;
+			goto cleanup;
 		}
 
-		log_error("----> %s:%d: content_size: %d\n", __func__, __LINE__, content_size);
-		char xxx[1000];
-		snprintf(xxx, bytes_read, "%s", buffer);
-		log_error("----> %s:%d: header:\n%s\n", __func__, __LINE__, xxx);
-
-		/* read the rest of the response body */
-		if (content_size > 0) {
-			if (chunked) {
-				size_t bufsz = ssl_ret;
-				ssize_t chunk_size = phr_decode_chunked(&decoder,
-						buffer + bytes_read, &bufsz);
-
-				ssl_ret = bufsz;
-				if (chunk_size > 0) {
-					/* end of chunked-encoded data */
-					break;
-				} else if (chunk_size == -2) {
-					/* still reading chunks, continue the loop */
-				} else if (chunk_size == -1) {
-					/* failed to parse chunks */
-					assert(chunk_size == -1);
-					http_errno = ERR_HTTP_INVALID;
-					goto cleanup;
-				}
-			}
-			bytes_read += ssl_ret;
-			log_error("----> %s:%d: bytes_read: %d\n", __func__, __LINE__, bytes_read);
-			if (!chunked) {
-				if (bytes_read >= header_size + content_size)
-					/* end of data */
-					break;
-			}
-		}
-
-		log_error("----> %s:%d: NEAR END OF LOOP\n", __func__, __LINE__);
 		if (bytes_read >= 0x10000) {
 			http_errno = ERR_HTTP_TOO_LONG;
 			goto cleanup;
 		}
-		log_error("----> %s:%d: END OF LOOP\n", __func__, __LINE__);
-		log_error("--------------------\n", __func__, __LINE__, bytes_read);
-	} while (ssl_ret > 0 || ssl_ret == ERR_SSL_AGAIN);
+		log_error("--<<< %s:%d: END LOOP\n", __func__, __LINE__);
+	}
 
 	log_error("----> %s:%d: bytes_read: %d\n", __func__, __LINE__, bytes_read);
 
@@ -335,7 +297,7 @@ int http_receive(
 
 cleanup:
 	/*********** REMOVE **********/
-	log_error("--------------------\n", __func__, __LINE__, bytes_read);
+	log_error("--------------------\n", __func__, __LINE__);
 	log_error("----> %s:%d: bytes_read: %d\n", __func__, __LINE__, bytes_read);
 	log_error("----> %s:%d: header_size: %d\n", __func__, __LINE__, header_size);
 	log_error("----> %s:%d: content_size: %d\n", __func__, __LINE__, content_size);
