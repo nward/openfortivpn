@@ -180,8 +180,8 @@ On the master branch there may be changes that are not (yet) described here.
 
 * [~] Support longer passwords by allocation of a larger buffer
 * [-] With version 1.8.0 /etc/resolv.conf was not updated anymore in some situations.
-  To avoid this regression the change "Rationalize DNS options" has been reverted again
-  to restore the behavior of versions up to 1.7.1.
+  To avoid this regression the change "Rationalize DNS options" has been reverted
+  again to restore the behavior of versions up to 1.7.1.
 * [-] Correctly use realm together with two factor authentication
 * [~] If no port is specified use standard https port similar as vendor client
 * [-] Fix value of Accept-Encoding request header
@@ -226,7 +226,8 @@ On the master branch there may be changes that are not (yet) described here.
 * [+] Add --pppd-call option
 * [~] Use X509_check_host instead of explicit CN match
 * [+] Add --persistent option
-* [~] Improve autoconf (check for pkg-conf before using, improve error messages, etc.)
+* [~] Improve autoconf (check for pkg-conf before using, improve
+  error messages, etc.)
 
 ### 1.6.0
 
@@ -274,7 +275,8 @@ On the master branch there may be changes that are not (yet) described here.
 * [-] Do not remove route to vpn gateway if it has existed before connecting
 * [~] Load OS trusted certificate stores
 * [~} When setting up routes protect the route to the vpn gateway
-* [-] Add gateway flag to routes that may not be reachable directly at the tunnel end
+* [-] Add gateway flag to routes that may not be reachable directly at the
+      tunnel end
 * [-] Correctly detect if pushed routes have a gateway
 * [-] Correctly mark the route to the vpn gateway as a host route
 * [-] Clean up routing table upon termination
@@ -298,14 +300,16 @@ On the master branch there may be changes that are not (yet) described here.
 * [+] Add an option not to ask ppp peer for dns servers
 * [-] Fix array bounds error for trusted cert string
 * [-] Fix compiler warning about type cast around getchar
-* [-] Properly initialize memory for tunnel structure to avoid undeterministic behavior
+* [-] Properly initialize memory for tunnel structure to avoid undeterministic
+      behavior
 * [-] Properly initialize pointer in auth_log_in to avoid crash on http_request
 * [-] Fix buffer overflow in parse_config
 
 ### 1.1.4
 
 * [-] Fix new GCC 6 strict-aliasing errors
-* [-] For split routes use interface if no gateway address is assigned in received route
+* [-] For split routes use interface if no gateway address is assigned
+      in received route
 * [-] Fix rewrite of resolv.conf with non null-terminated buffer
 * [~] Perform two factor authentication also with zero-length tokeninfo
 
@@ -362,7 +366,8 @@ On the master branch there may be changes that are not (yet) described here.
 ### 1.0.0
 
 * Start tracking openfortivpn - in this version with the following features:
-```
+
+```text
 Usage: openfortivpn <host>:<port> -u <user> -p <pass>
                     [--no-routes] [--no-dns] [--pppd-log=<filename>]
                     [-v|-q]
@@ -372,7 +377,11 @@ Usage: openfortivpn <host>:<port> -u <user> -p <pass>
 
 ### Details of the changes
 
-This is a high level changelog meant to provide a rough overview about the version history of openfortivpn. Please see the Github [commit history](https://github.com/adrienverge/openfortivpn/commits) for more details of the individual changes listed here, and for a complete list of the internal code changes.
+This is a high level changelog meant to provide a rough overview about the
+version history of openfortivpn. Please see the Github
+[commit history](https://github.com/adrienverge/openfortivpn/commits) for
+more details of the individual changes listed here, and for a complete list
+of the internal code changes.
 
 More Information
 ----------------

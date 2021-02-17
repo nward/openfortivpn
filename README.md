@@ -110,6 +110,7 @@ On macOS both [Homebrew](https://formulae.brew.sh/formula/openfortivpn) and
 [MacPorts](https://ports.macports.org/port/openfortivpn)
 provide an `openfortivpn` package.
 Either [install Homebrew](https://brew.sh/) then install openfortivpn:
+
 ```shell
 # Install 'Homebrew'
 /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
@@ -119,6 +120,7 @@ brew install openfortivpn
 ```
 
 or [install MacPorts](https://www.macports.org/install.php) then install openfortivpn:
+
 ```shell
 # Install 'openfortivpn'
 sudo port install openfortivpn
@@ -130,7 +132,7 @@ A more complete overview can be obtained from [repology](https://repology.org/pr
 
 For other distros, you'll need to build and install from source:
 
-1.  Install build dependencies.
+1. Install build dependencies.
 
     * RHEL/CentOS/Fedora: `gcc` `automake` `autoconf` `openssl-devel` `make` `pkg-config`
     * Debian/Ubuntu: `gcc` `automake` `autoconf` `libssl-dev` `make` `pkg-config`
@@ -147,6 +149,7 @@ For other distros, you'll need to build and install from source:
     ```
 
     On macOS, install 'Homebrew' to install the build dependencies:
+
     ```shell
     # Install 'Homebrew'
     /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
@@ -160,7 +163,7 @@ For other distros, you'll need to build and install from source:
     export PKG_CONFIG_PATH="/usr/local/opt/openssl/lib/pkgconfig:$PKG_CONFIG_PATH"
     ```
 
-2.  Build and install.
+2. Build and install.
 
     ```shell
     ./autogen.sh
@@ -197,6 +200,7 @@ Cmnd_Alias  OPENFORTIVPN = /usr/bin/openfortivpn
 
 %adm       ALL = (ALL) OPENFORTIVPN
 ```
+
 Adapt the above example by changing the `openfortivpn` path or choosing
 a group different from `adm` - such as a dedicated `openfortivpn` group.
 
