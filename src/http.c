@@ -828,7 +828,26 @@ static int parse_xml_config(struct tunnel *tunnel, const char *buffer)
 	// Skip the HTTP header
 	buffer = strstr(buffer, "\r\n\r\n");
 
+	// Start parsing XML
+	sxml_t sxml_parser;
+	sxmltok_t sxml_tokens[10];
+
+	sxml_init(&sxml_parser);
+
+	while (sxml_parse(&sxml_parser, buffer, strlen(buffer),
+	                  sxml_tokens, 10) == SXML_SUCCESS) {
+		
+		
+	}
+
+
+
+
+
+
 	// The address of a local end of a router
+
+
 	val = xml_find('<', "assigned-addr", buffer, 1);
 	gateway = xml_get(xml_find(' ', "ipv4=", val, 1));
 	if (!gateway)
