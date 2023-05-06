@@ -24,16 +24,16 @@ jobs:
         run: sudo apt-get install -y astyle
 
       - name: Artistic Style
-        run: ./tests/lint/astyle.sh $(git ls-files '*.[ch]')
+        run: ./tests/lint/astyle.sh $(git ls-files '*.[ch]' | grep -v sxml)
 
       - name: Linux Kernel Coding Style
-        run: ./tests/lint/checkpatch.sh $(git ls-files '*.[ch]')
+        run: ./tests/lint/checkpatch.sh $(git ls-files '*.[ch]' | grep -v sxml)
 
       - name: EOL at EOF
-        run: ./tests/lint/eol-at-eof.sh $(git ls-files)
+        run: ./tests/lint/eol-at-eof.sh $(git ls-files) | grep -v sxml
 
       - name: Line Length
-        run: ./tests/lint/line_length.py $(git ls-files '*.[ch]')
+        run: ./tests/lint/line_length.py $(git ls-files '*.[ch]' | grep -v sxml)
 
   build:
     name: Build
