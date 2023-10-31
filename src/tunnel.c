@@ -282,7 +282,7 @@ static int pppd_run(struct tunnel *tunnel)
 				 * removing it.
 				 */
 				"ipcp-accept-local",
-#ifndef LEGACY_PPPD
+
 				/*
 				 * With this option, pppd accepts the peer's idea of its
 				 * (remote) IP address, even if the remote IP address was
@@ -296,7 +296,6 @@ static int pppd_run(struct tunnel *tunnel)
 				 * Again, this doesn't make sense to me.
 				 */
 				"ipcp-accept-remote",
-#endif
 				"noaccomp",
 				"noauth",
 				"default-asyncmap",
